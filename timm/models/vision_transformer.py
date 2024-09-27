@@ -82,6 +82,13 @@ class Attention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
+        ##############################################
+        self.attn_logits_identity = nn.Identity()
+        self.attn_map_identity = nn.Identity()   
+
+        ##############################################
+
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
@@ -96,7 +103,14 @@ class Attention(nn.Module):
         else:
             q = q * self.scale
             attn = q @ k.transpose(-2, -1)
+            ##############################################
+            attn = self.attn_logits_identity(attn)
+            ##############################################
+            
             attn = attn.softmax(dim=-1)
+            ##############################################
+            attn = self.attn_map_identity(attn)
+            ##############################################
             attn = self.attn_drop(attn)
             x = attn @ v
 
