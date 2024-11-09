@@ -28,6 +28,8 @@ from timm.models import create_model, load_checkpoint, is_model, list_models
 from timm.utils import accuracy, AverageMeter, natural_key, setup_default_logging, set_jit_fuser, \
     decay_batch_step, check_batch_size_retry, ParseKwargs, reparameterize_model
 
+from patch import patch_model_for_kv_eviction 
+
 try:
     from apex import amp
     has_apex = True
@@ -160,6 +162,14 @@ parser.add_argument('--valid-labels', default='', type=str, metavar='FILENAME',
 parser.add_argument('--retry', default=False, action='store_true',
                     help='Enable batch size decay & retry for single model validation')
 
+## top-k kv eviction arguments
+parser.add_argument("--evict-k", default=0, type=int)
+parser.add_argument("--evict-start", default=0, type=int)
+parser.add_argument("--evict-end", default=0, type=int)
+parser.add_argument("--evict-num", default=0, type=int)
+parser.add_argument("--evict-after-end", default=-1, type=int)
+parser.add_argument("--evict-step", default=0, type=int)
+
 
 def validate(args):
     # might as well try to validate something
@@ -213,6 +223,9 @@ def validate(args):
         scriptable=args.torchscript,
         **args.model_kwargs,
     )
+
+        
+
     if args.num_classes is None:
         assert hasattr(model, 'num_classes'), 'Model must have `num_classes` attr if not set on cmd line/config.'
         args.num_classes = model.num_classes
@@ -312,6 +325,23 @@ def validate(args):
     top5 = AverageMeter()
 
     model.eval()
+    
+    # =====================
+    # Patch model for kv eviction
+
+    if args.evict_k > 0:
+        model = patch_model_for_kv_eviction(
+            model, 
+            k=args.evict_k,
+            to_evict=args.evict_num,
+            start_layer=args.evict_start,
+            end_layer=args.evict_end,
+            after_end=args.evict_after_end,
+            step=args.evict_step
+        )
+
+    # =====================
+
     with torch.no_grad():
         # warmup, reduce variability of first batch time, especially for comparing torchscript vs non
         input = torch.randn((args.batch_size,) + tuple(data_config['input_size'])).to(device)
