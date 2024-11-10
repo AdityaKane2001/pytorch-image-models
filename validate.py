@@ -80,7 +80,7 @@ parser.add_argument('--model', '-m', metavar='NAME', default='dpn92',
                     help='model architecture (default: dpn92)')
 parser.add_argument('--pretrained', dest='pretrained', action='store_true',
                     help='use pre-trained model')
-parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
+parser.add_argument('-j', '--workers', default=16, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('-b', '--batch-size', default=256, type=int,
                     metavar='N', help='mini-batch size (default: 256)')
@@ -108,7 +108,7 @@ parser.add_argument('--num-classes', type=int, default=None,
                     help='Number classes in dataset')
 parser.add_argument('--gp', default=None, type=str, metavar='POOL',
                     help='Global pool type, one of (fast, avg, max, avgmax, avgmaxc). Model default if None.')
-parser.add_argument('--log-freq', default=10, type=int,
+parser.add_argument('--log-freq', default=1000, type=int,
                     metavar='N', help='batch logging frequency (default: 10)')
 parser.add_argument('--checkpoint', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
@@ -191,16 +191,16 @@ def validate(args):
             assert has_apex, 'AMP impl specified as APEX but APEX is not installed.'
             assert args.amp_dtype == 'float16'
             use_amp = 'apex'
-            _logger.info('Validating in mixed precision with NVIDIA APEX AMP.')
+            #_logger.info('Validating in mixed precision with NVIDIA APEX AMP.')
         else:
             assert has_native_amp, 'Please update PyTorch to a version with native AMP (or use APEX).'
             assert args.amp_dtype in ('float16', 'bfloat16')
             use_amp = 'native'
             amp_dtype = torch.bfloat16 if args.amp_dtype == 'bfloat16' else torch.float16
             amp_autocast = partial(torch.autocast, device_type=device.type, dtype=amp_dtype)
-            _logger.info('Validating in mixed precision with native PyTorch AMP.')
+            #_logger.info('Validating in mixed precision with native PyTorch AMP.')
     else:
-        _logger.info('Validating in float32. AMP not enabled.')
+        # _logger.info('Validating in float32. AMP not enabled.')
 
     if args.fuser:
         set_jit_fuser(args.fuser)
@@ -238,7 +238,7 @@ def validate(args):
         model = reparameterize_model(model)
 
     param_count = sum([m.numel() for m in model.parameters()])
-    _logger.info('Model %s created, param count: %d' % (args.model, param_count))
+    # _logger.info('Model %s created, param count: %d' % (args.model, param_count))
 
     data_config = resolve_data_config(
         vars(args),
@@ -267,6 +267,24 @@ def validate(args):
 
     if use_amp == 'apex':
         model = amp.initialize(model, opt_level='O1')
+    
+    # =====================
+    # Patch model for kv eviction
+
+    if args.evict_k > 0:
+        model = patch_model_for_kv_eviction(
+            model, 
+            algorithm=args.evict_algo,
+            k=args.evict_k,
+            to_evict=args.evict_num,
+            start_layer=args.evict_start,
+            end_layer=args.evict_end,
+            after_end=args.evict_after_end,
+            step=args.evict_step
+        )
+
+
+    # =====================
 
     if args.num_gpu > 1:
         model = torch.nn.DataParallel(model, device_ids=list(range(args.num_gpu)))
@@ -327,21 +345,6 @@ def validate(args):
 
     model.eval()
     
-    # =====================
-    # Patch model for kv eviction
-
-    if args.evict_k > 0:
-        model = patch_model_for_kv_eviction(
-            model, 
-            k=args.evict_k,
-            to_evict=args.evict_num,
-            start_layer=args.evict_start,
-            end_layer=args.evict_end,
-            after_end=args.evict_after_end,
-            step=args.evict_step
-        )
-
-    # =====================
 
     with torch.no_grad():
         # warmup, reduce variability of first batch time, especially for comparing torchscript vs non
@@ -380,22 +383,22 @@ def validate(args):
             batch_time.update(time.time() - end)
             end = time.time()
 
-            if batch_idx % args.log_freq == 0:
-                _logger.info(
-                    'Test: [{0:>4d}/{1}]  '
-                    'Time: {batch_time.val:.3f}s ({batch_time.avg:.3f}s, {rate_avg:>7.2f}/s)  '
-                    'Loss: {loss.val:>7.4f} ({loss.avg:>6.4f})  '
-                    'Acc@1: {top1.val:>7.3f} ({top1.avg:>7.3f})  '
-                    'Acc@5: {top5.val:>7.3f} ({top5.avg:>7.3f})'.format(
-                        batch_idx,
-                        len(loader),
-                        batch_time=batch_time,
-                        rate_avg=input.size(0) / batch_time.avg,
-                        loss=losses,
-                        top1=top1,
-                        top5=top5
-                    )
-                )
+            # if batch_idx % args.log_freq == 0:
+            #     _logger.info(
+            #         'Test: [{0:>4d}/{1}]  '
+            #         'Time: {batch_time.val:.3f}s ({batch_time.avg:.3f}s, {rate_avg:>7.2f}/s)  '
+            #         'Loss: {loss.val:>7.4f} ({loss.avg:>6.4f})  '
+            #         'Acc@1: {top1.val:>7.3f} ({top1.avg:>7.3f})  '
+            #         'Acc@5: {top5.val:>7.3f} ({top5.avg:>7.3f})'.format(
+            #             batch_idx,
+            #             len(loader),
+            #             batch_time=batch_time,
+            #             rate_avg=input.size(0) / batch_time.avg,
+            #             loss=losses,
+            #             top1=top1,
+            #             top5=top5
+            #         )
+            #     )
 
     if real_labels is not None:
         # real labels mode replaces topk values at the end
@@ -504,7 +507,7 @@ def main():
         write_results(args.results_file, results, format=args.results_format)
 
     # output results in JSON to stdout w/ delimiter for runner script
-    print(f'--result\n{json.dumps(results, indent=4)}')
+    # print(f'--result {args.evict_algo=} {args.evict_k=} {args.evict_num=} \n{json.dumps(results, indent=4)}')
 
 
 def write_results(results_file, results, format='csv'):
