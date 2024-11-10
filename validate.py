@@ -242,7 +242,7 @@ def validate(args):
         vars(args),
         model=model,
         use_test_size=not args.use_train_size,
-        verbose=True,
+        verbose=False,
     )
     test_time_pool = False
     if args.test_pool:
