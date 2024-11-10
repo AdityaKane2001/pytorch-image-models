@@ -27,6 +27,12 @@ def update_keepmap(attn_map, glbl_to_keep_map, k=5, to_evict=3, algorithm="topk"
         raise ValueError()
 
     B, H, Nq, Nc = attn_map.shape
+
+    if not float(to_evict).is_integer():
+        to_evict = round(Nc * to_evict)
+        assert Nc > to_evict, f"Cannot evict more context than what is present, {to_evict=}, {Nc=}!"
+    to_evict = int(to_evict)
+
     _, lcl_to_keep_map = func(attn_map, k=k, to_evict=to_evict, largest=largest, has_cls=has_cls)
     
     # glbl_to_keep_map: [B, Nc], the global evict map will have indices from the original Nc.

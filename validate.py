@@ -165,9 +165,9 @@ parser.add_argument('--retry', default=False, action='store_true',
 ## top-k kv eviction arguments
 parser.add_argument("--evict-algo", default="topk", type=str)
 parser.add_argument("--evict-k", default=0, type=int)
-parser.add_argument("--evict-start", default=0, type=int)
-parser.add_argument("--evict-end", default=0, type=int)
-parser.add_argument("--evict-num", default=0, type=int)
+parser.add_argument("--evict-start", default=0, type=float)
+parser.add_argument("--evict-end", default=0, type=float)
+parser.add_argument("--evict-num", default=0, type=float)
 parser.add_argument("--evict-after-end", default=-1, type=int)
 parser.add_argument("--evict-step", default=0, type=int)
 
@@ -199,8 +199,6 @@ def validate(args):
             amp_dtype = torch.bfloat16 if args.amp_dtype == 'bfloat16' else torch.float16
             amp_autocast = partial(torch.autocast, device_type=device.type, dtype=amp_dtype)
             #_logger.info('Validating in mixed precision with native PyTorch AMP.')
-    else:
-        # _logger.info('Validating in float32. AMP not enabled.')
 
     if args.fuser:
         set_jit_fuser(args.fuser)

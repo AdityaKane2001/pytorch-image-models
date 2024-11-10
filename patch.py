@@ -152,7 +152,49 @@ def get_eviction_model(model, k=5, algorithm="topk", eviction_policy=None):
         
     return model
 
+
+def parse_limits(num_layers=12, start_layer=0, end_layer=1):
+    
+    _ret_start = None
+    _ret_end = None
+
+    if isinstance(start_layer, float):
+        if start_layer.is_integer(): 
+            start_layer = int(start_layer)
+        else:
+            start_layer = round(start_layer * num_layers)   
+    
+    if isinstance(end_layer, float):
+        if end_layer.is_integer(): 
+            end_layer = int(end_layer)
+        else:
+            end_layer = round(end_layer * num_layers)   
+
+    start_layer = int(start_layer)
+    end_layer = int(end_layer)
+
+    if start_layer >= 0:
+        _ret_start = start_layer
+    elif start_layer < 0:
+        _ret_start = num_layers + start_layer
+
+    if end_layer >= 0:
+        _ret_end = end_layer
+    elif end_layer < 0:
+        _ret_end = num_layers + end_layer
+
+
+    assert _ret_start >= 0  and _ret_start < num_layers, f"Start layer incorrect, {num_layers=}, {start_layer=}, {_ret_start=}" 
+    assert _ret_start >= 0  and _ret_start < num_layers, f"End layer incorrect, {num_layers=}, {end_layer=}, {_ret_start=}" 
+    assert _ret_start <= _ret_end, f"Start layer greater than end: {_ret_start=}, {_ret_end=}"
+
+    return _ret_start, _ret_end
+    
+
 def get_eviction_policy(num_layers, start_layer=0, end_layer=1, after_end=0, to_evict=3, step=0):
+    
+    start_layer, end_layer = parse_limits(num_layers, start_layer, end_layer)
+
     eviction_policy = [-1 for _ in range(num_layers)]
     
     assert end_layer < num_layers and end_layer > start_layer, "Incorrect values for start and end layers."
@@ -163,11 +205,14 @@ def get_eviction_policy(num_layers, start_layer=0, end_layer=1, after_end=0, to_
     for layer_idx in range(end_layer, num_layers):
         eviction_policy[layer_idx] = after_end
 
+    print(f"{eviction_policy=}")
+
     return eviction_policy
 
 
 def patch_model_for_kv_eviction(model, k=5, algorithm="topk", to_evict=3, start_layer=0, end_layer=1, step=0, after_end=0):
-    eviction_policy = get_eviction_policy(len(model.blocks), start_layer=start_layer, end_layer=end_layer, to_evict=to_evict, step=step, after_end=after_end)
+    eviction_policy = get_eviction_policy(len(model.blocks), start_layer=start_layer, 
+        end_layer=end_layer, to_evict=to_evict, step=step, after_end=after_end)
     model = replace_qkv_with_unbound(model)
     model = get_eviction_model(model, k=k, algorithm=algorithm, eviction_policy=eviction_policy)
     return model
