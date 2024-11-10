@@ -19,8 +19,12 @@ def update_keepmap(attn_map, glbl_to_keep_map, k=5, to_evict=3, algorithm="topk"
 
     if algorithm == "topk":
         func = sh._topk_nothres
-    elif algorithm == "arithmetic_mean"
+    elif algorithm == "arithmetic_mean":
         func = sh._mean_colwise_thres
+    elif algorithm == "geometric_mean":
+        func = sh._geomean_colwise_thres
+    else:
+        raise ValueError()
 
     B, H, Nq, Nc = attn_map.shape
     _, lcl_to_keep_map = func(attn_map, k=k, to_evict=to_evict, largest=largest, has_cls=has_cls)

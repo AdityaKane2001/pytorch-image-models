@@ -29,7 +29,8 @@ class SinkAttention(Attention):
         has_k = "k" in cfg_keys
         has_to_evict = "to_evict" in cfg_keys
         has_largest = "largest" in cfg_keys
-        has_pruning_params = has_cls and has_k and has_to_evict and has_largest
+        has_algorithm = "algorithm" in cfg_keys
+        has_pruning_params = has_cls and has_k and has_to_evict and has_largest and has_algorithm
         
         return has_qkv_unbound, has_pruning_params
 
@@ -60,7 +61,7 @@ class SinkAttention(Attention):
             q = self.q(x).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
         
             to_keep_map = update_keepmap(past_attn, to_keep_map, k=ecfg["k"], to_evict=ecfg["to_evict"], 
-                 largest=ecfg["largest"], has_cls=ecfg["has_cls"])
+                 largest=ecfg["largest"], has_cls=ecfg["has_cls"], algorithm=ecfg["algorithm"])
             pruned_x = prune_x(x, to_keep_map) 
 
             k = self.k(pruned_x).view(B, -1, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
@@ -130,7 +131,7 @@ class SinkVisionTransformer(VisionTransformer):
         return x
     
 
-def get_eviction_model(model, k=5, eviction_policy=None):
+def get_eviction_model(model, k=5, algorithm="topk", eviction_policy=None):
     if eviction_policy is not None and max(eviction_policy) > 0:
         model.__class__ = SinkVisionTransformer
         for name, module in model.named_modules():
@@ -145,7 +146,8 @@ def get_eviction_model(model, k=5, eviction_policy=None):
                 largest=False,
                 has_cls = model.cls_token is not None,
                 k=k,
-                to_evict=eviction_policy[layer_idx]
+                to_evict=eviction_policy[layer_idx],
+                algorithm=algorithm
             ) 
         
     return model
@@ -164,8 +166,8 @@ def get_eviction_policy(num_layers, start_layer=0, end_layer=1, after_end=0, to_
     return eviction_policy
 
 
-def patch_model_for_kv_eviction(model, k=5, to_evict=3, start_layer=0, end_layer=1, step=0, after_end=0):
+def patch_model_for_kv_eviction(model, k=5, algorithm="topk", to_evict=3, start_layer=0, end_layer=1, step=0, after_end=0):
     eviction_policy = get_eviction_policy(len(model.blocks), start_layer=start_layer, end_layer=end_layer, to_evict=to_evict, step=step, after_end=after_end)
     model = replace_qkv_with_unbound(model)
-    model = get_eviction_model(model, k=k, eviction_policy=eviction_policy)
+    model = get_eviction_model(model, k=k, algorithm=algorithm, eviction_policy=eviction_policy)
     return model

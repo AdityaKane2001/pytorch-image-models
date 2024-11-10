@@ -163,6 +163,7 @@ parser.add_argument('--retry', default=False, action='store_true',
                     help='Enable batch size decay & retry for single model validation')
 
 ## top-k kv eviction arguments
+parser.add_argument("--evict-algo", default="topk", type=str)
 parser.add_argument("--evict-k", default=0, type=int)
 parser.add_argument("--evict-start", default=0, type=int)
 parser.add_argument("--evict-end", default=0, type=int)
