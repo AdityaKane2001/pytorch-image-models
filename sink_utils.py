@@ -12,13 +12,18 @@ def get_topk_drop_mask(attn, k=5, to_evict=3, largest=False):
     return to_keep_map
 
 @torch.no_grad()
-def update_keepmap(attn_map, glbl_to_keep_map, k=5, to_evict=3, largest=False, has_cls=True):
+def update_keepmap(attn_map, glbl_to_keep_map, k=5, to_evict=3, algorithm="topk", largest=False, has_cls=True):
 
     if to_evict == 0:
         return glbl_to_keep_map
 
+    if algorithm == "topk":
+        func = sh._topk_nothres
+    elif algorithm == "arithmetic_mean"
+        func = sh._mean_colwise_thres
+
     B, H, Nq, Nc = attn_map.shape
-    _, lcl_to_keep_map = sh._topk_nothres(attn_map, k=k, to_evict=to_evict, largest=largest, has_cls=has_cls)
+    _, lcl_to_keep_map = func(attn_map, k=k, to_evict=to_evict, largest=largest, has_cls=has_cls)
     
     # glbl_to_keep_map: [B, Nc], the global evict map will have indices from the original Nc.
     # lcl_to_keep_map: [B, Nc - to_evict], the local evict map will have indices in the Nc it had for the layer it was in.
