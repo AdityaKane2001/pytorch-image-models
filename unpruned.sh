@@ -8,7 +8,7 @@ python3 -u validate.py --data-dir /data/datasets/ImageNet/ \
    --evict-after-end=-1\
    --amp\
    --results-format="json"\
-   --batch-size=1024\
+   --batch-size=512\
    --workers=32\
    --num-gpu=8\
    --savedir="/home/users/akane/kv-evict-results/$1/unpruned/"\
