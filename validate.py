@@ -80,9 +80,9 @@ parser.add_argument('--model', '-m', metavar='NAME', default='dpn92',
                     help='model architecture (default: dpn92)')
 parser.add_argument('--pretrained', dest='pretrained', action='store_true',
                     help='use pre-trained model')
-parser.add_argument('-j', '--workers', default=16, type=int, metavar='N',
+parser.add_argument('-j', '--workers', default=64, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
-parser.add_argument('-b', '--batch-size', default=256, type=int,
+parser.add_argument('-b', '--batch-size', default=512, type=int,
                     metavar='N', help='mini-batch size (default: 256)')
 parser.add_argument('--img-size', default=None, type=int,
                     metavar='N', help='Input image dimension, uses model default if empty')
@@ -167,10 +167,10 @@ parser.add_argument("--evict-algo", default="topk", type=str)
 parser.add_argument("--evict-k", default=0, type=int)
 parser.add_argument("--evict-start", default=0, type=float)
 parser.add_argument("--evict-end", default=0, type=float)
-parser.add_argument("--evict-num", default=0, type=float)
+parser.add_argument("--evict-num", default=0, type=int)
 parser.add_argument("--evict-after-end", default=-1, type=int)
 parser.add_argument("--evict-step", default=0, type=int)
-
+parser.add_argument("--savedir", default=None, type=str)
 
 def validate(args):
     # might as well try to validate something
@@ -281,7 +281,6 @@ def validate(args):
             step=args.evict_step
         )
 
-
     # =====================
 
     if args.num_gpu > 1:
@@ -380,23 +379,6 @@ def validate(args):
             # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
-
-            # if batch_idx % args.log_freq == 0:
-            #     _logger.info(
-            #         'Test: [{0:>4d}/{1}]  '
-            #         'Time: {batch_time.val:.3f}s ({batch_time.avg:.3f}s, {rate_avg:>7.2f}/s)  '
-            #         'Loss: {loss.val:>7.4f} ({loss.avg:>6.4f})  '
-            #         'Acc@1: {top1.val:>7.3f} ({top1.avg:>7.3f})  '
-            #         'Acc@5: {top5.val:>7.3f} ({top5.avg:>7.3f})'.format(
-            #             batch_idx,
-            #             len(loader),
-            #             batch_time=batch_time,
-            #             rate_avg=input.size(0) / batch_time.avg,
-            #             loss=losses,
-            #             top1=top1,
-            #             top5=top5
-            #         )
-            #     )
 
     if real_labels is not None:
         # real labels mode replaces topk values at the end
@@ -501,12 +483,14 @@ def main():
         else:
             results = validate(args)
 
-    if args.results_file:
-        write_results(args.results_file, results, format=args.results_format)
-
-    # output results in JSON to stdout w/ delimiter for runner script
-    # print(f'--result {args.evict_algo=} {args.evict_k=} {args.evict_num=} \n{json.dumps(results, indent=4)}')
-
+    if args.savedir is not None:
+        os.makedirs(args.savedir, exist_ok=True)
+        model_str = args.model.replace(".", "_")
+        results_file = os.path.join(
+            args.savedir,
+            f"{model_str}-algo_{args.evict_algo}-k{args.evict_k}-num{args.evict_num}.json"
+        )
+        write_results(results_file, results, format="json") 
 
 def write_results(results_file, results, format='csv'):
     with open(results_file, mode='w') as cf:

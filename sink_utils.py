@@ -14,7 +14,7 @@ def get_topk_drop_mask(attn, k=5, to_evict=3, largest=False):
 @torch.no_grad()
 def update_keepmap(attn_map, glbl_to_keep_map, k=5, to_evict=3, algorithm="topk", largest=False, has_cls=True):
 
-    if to_evict == 0:
+    if int(to_evict) == 0:
         return glbl_to_keep_map
 
     if algorithm == "topk":
