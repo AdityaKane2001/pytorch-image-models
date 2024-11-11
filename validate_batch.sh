@@ -12,5 +12,6 @@ do
         for k in $(seq 1 5)
         do
             ./topk.sh $MODEL $num $k 2>&1 | tee -a outfiles/$MODEL-topk-$num-$k.txt
+        done
     done
 done
