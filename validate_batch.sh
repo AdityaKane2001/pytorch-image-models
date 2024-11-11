@@ -1,7 +1,4 @@
-modellist=(
-
-
-)
+readarray -t modellist < modellist.txt
 
 for MODEL in "${modellist[@]}"
 do
