@@ -1,4 +1,4 @@
-readarray -t modellist < modellist.txt
+readarray -t modellist < /workspace/akane/node-modellist.txt
 
 for MODEL in "${modellist[@]}"
 do
