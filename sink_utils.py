@@ -44,6 +44,8 @@ def update_keepmap(attn_map, glbl_to_keep_map, k=5, to_evict=3, algorithm="topk"
     if has_cls:
         glbl_to_keep_map = torch.cat([torch.zeros(B, 1, device=glbl_to_keep_map.device, dtype=glbl_to_keep_map.dtype), glbl_to_keep_map], dim=-1)
 
+    print(glbl_to_keep_map)
+
     return glbl_to_keep_map
 
 

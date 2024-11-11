@@ -73,6 +73,10 @@ class SinkAttention(Attention):
 
         q, k = self.q_norm(q), self.k_norm(k)
 
+        print(f"{q.shape=}")
+        print(f"{k.shape=}")
+        print(f"{v.shape=}")
+
         if False:
             x = F.scaled_dot_product_attention(
                 q, k, v,
@@ -89,12 +93,16 @@ class SinkAttention(Attention):
         x = x.transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
+
+        print(f"{attn.shape=}")
  
         return x, to_keep_map, attn
 
 
 class SinkBlock(Block):
+    
     def forward(self, x) -> torch.Tensor:
+        print("#" * 25)
         if isinstance(x, tuple):
             x, to_keep_map, past_attn = x
         else:
