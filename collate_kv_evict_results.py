@@ -1,21 +1,114 @@
 import os
 import glob
 import json
-
 import click
+import pandas as pd
+
 
 @click.command()
 @click.option("--results-root", default="/home/users/akane/kv-evict-results", type=str, help="Root directory of all results")
-@click.option("--output-filepath", default="/home/users/akane/kv-evict-results-collated.json", type=str, help="Root directory of all results")
-def main(results_root, output_filepath):
+@click.option("--output-json-filepath", default="/home/users/akane/kv-evict-results-collated.json", type=str, help="JSON savepath for all results")
+@click.option("--max-num", default=16, type=int, help="Max eviction number used for the sweep")
+def main(results_root, output_json_filepath, max_num):
     """Collates all KV eviction runs' results in one json file"""
     results_dict = dict()
-    all_dirs = glob.glob(os.path.join(results_root, "*"))
-    
+    all_dirs = sorted(glob.glob(os.path.join(results_root, "*")))
     for dirpath in all_dirs:
-        if dirpath.startswith("vit"):
-            print(dirpath)
+        if "vit" in dirpath:
+            model_name = dirpath.split("/")[-1]
+            results_dict[model_name] = dict()
+    
+            for num in range(1, max_num + 1):
+                results_dict[model_name][num] = dict() 
+                results_dict[model_name][num]["topk"] = dict()
+            
+            unpruned_file = sorted(glob.glob(os.path.join(dirpath, "unpruned/*.json")))
+            assert len(unpruned_file) == 1
+            with open(unpruned_file[0],  "r") as f:
+                unpruned_stats = json.load(f)
+                results_dict[model_name]["unpruned"] = unpruned_stats["top1"]
+
+
+            arith_mean_files = sorted(glob.glob(os.path.join(dirpath, "arithmetic_mean/*.json"))) 
+            for filepath in arith_mean_files:
+                filename = filepath.split("/")[-1]
+                num = int(filename.split("-")[-1].rstrip(".json")[3:])
+                
+                with open(filepath, "r") as f:
+                    arith_mean_stats = json.load(f)
+                    results_dict[model_name][num]["arithmetic_mean"] = arith_mean_stats["top1"]
+            
+            geo_mean_files = sorted(glob.glob(os.path.join(dirpath, "geometric_mean/*.json"))) 
+            for filepath in geo_mean_files:
+                filename = filepath.split("/")[-1]
+                num = int(filename.split("-")[-1].rstrip(".json")[3:])
+                
+                with open(filepath, "r") as f:
+                    geo_mean_stats = json.load(f)
+                    results_dict[model_name][num]["geometric_mean"] = geo_mean_stats["top1"]
+
+            topk_files = sorted(glob.glob(os.path.join(dirpath, "topk/*.json"))) 
+            for filepath in topk_files:
+                filename = filepath.split("/")[-1]
+                num = int(filename.split("-")[-1].rstrip(".json")[3:])
+                k = int(filename.split("-")[-2][1:])
+                with open(filepath, "r") as f:
+                    topk_stats = json.load(f)
+                    results_dict[model_name][num]["topk"][k] = topk_stats["top1"]
     
 
+    with open(output_json_filepath, "w+") as f:
+        json.dump(results_dict, f)
+
+
+@click.command()
+@click.option("--json-path", default="/home/users/akane/kv-evict-results-collated.json")
+@click.option("--csv-path", default="/home/users/akane/kv-evict-results-collated.csv")
+@click.option("--max-num", default=16, type=int, help="Max eviction number used for the sweep")
+@click.option("--max-k", default=5, type=int, help="Max topk k used for the sweep")
+def convert_json_to_csv(json_path, csv_path, max_num, max_k):
+    results_dict = json.load(open(json_path, "r"))
+    all_models = list(results_dict.keys())
+
+    data = dict()
+    data["model_name"] = list()
+    data["prune_num"] = list()
+    data["unpruned"] = list()
+    data["arithmetic_mean"] = list()
+    data["geometric_mean"] = list()
+    
+    for k in range(1, max_k + 1):
+        data[f"topk_{k}"] = list()
+
+ 
+    for model_name in all_models:
+        for num in range(1, max_num + 1):
+            try:
+                unpruned = results_dict[model_name]["unpruned"] 
+                arithmetic_mean = results_dict[model_name][str(num)]["arithmetic_mean"]
+                geometric_mean = results_dict[model_name][str(num)]["geometric_mean"]
+                topks = list()
+                for k in range(1, max_k + 1):
+                    topks.append(results_dict[model_name][str(num)]["topk"][str(k)])
+            
+                data["model_name"].append(model_name)
+                data["prune_num"].append(num)
+                data["unpruned"].append(unpruned)
+                data["arithmetic_mean"].append(arithmetic_mean)
+                data["geometric_mean"].append(geometric_mean)
+                for k in range(max_k):
+                    data[f"topk_{k+1}"].append(topks[k])
+            except:
+                print(f"{model_name} for {num=} not found...")
+            
+
+
+    for k, v in data.items():
+        print(f"{k}: {len(v)}")
+
+    df = pd.DataFrame(data)
+    df.to_csv(csv_path, header=True, index=False)
+
 if __name__ == "__main__":
-    main()
+    # main()
+    convert_json_to_csv()

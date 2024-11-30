@@ -18,6 +18,7 @@ do
 
         for k in $(seq 1 5)
         do
+            echo "=========================="
             echo "Running $MODEL topk with num=$num and k=$k..."
             ./topk.sh $MODEL $num $k 2>&1 | tee -a outfiles/$MODEL-topk-$num-$k.txt
         done
