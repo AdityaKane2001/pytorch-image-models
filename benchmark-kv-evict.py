@@ -45,6 +45,7 @@ parser.add_argument("--evict-end", default=0, type=float)
 parser.add_argument("--evict-num", default=0, type=int)
 parser.add_argument("--evict-after-end", default=-1, type=int)
 parser.add_argument("--evict-step", default=0, type=int)
+parser.add_argument("--evict-num-gemms", default=3, type=int)
 parser.add_argument("--savedir", default=None, type=str)
 
 
@@ -68,7 +69,8 @@ def validate(args):
             start_layer=args.evict_start,
             end_layer=args.evict_end,
             after_end=args.evict_after_end,
-            step=args.evict_step
+            step=args.evict_step,
+            num_gemms=args.evict_num_gemms
         )
 
     model = model.cuda()
