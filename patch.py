@@ -129,26 +129,73 @@ class SinkVisionTransformer(VisionTransformer):
         x, to_keep_map, past_attn = x
         x = self.norm(x)
         return x
-    
+
+
+class GEMMAttention(Attention):   
+    def forward(self,x):
+        B, N, C = x.shape
+        if self.num_gemms == 1:
+            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            q, k, v = qkv.unbind(0)
+
+        elif self.num_gemms == 2:
+            q = self.q(x).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+            kv = self.kv(x).view(B, N, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            k, v = kv.unbind(0)
+
+        elif self.num_gemms == 3:
+            q = self.q(x).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+            k = self.k(x).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+            v = self.v(x).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+
+        else:
+            raise AttributeError("either of one,two, three gemm should be true")
+        
+        q, k = self.q_norm(q), self.k_norm(k)
+
+        if self.fused_attn:
+            x = F.scaled_dot_product_attention(
+                q, k, v,
+                dropout_p=self.attn_drop.p if self.training else 0.,
+            )
+        else:
+            q = q * self.scale
+            attn = q @ k.transpose(-2, -1)
+            ##############################################
+            attn = self.attn_logits_identity(attn)
+            ##############################################
+            
+            attn = attn.softmax(dim=-1)
+            ##############################################
+            attn = self.attn_map_identity(attn)
+            ##############################################
+            attn = self.attn_drop(attn)
+            x = attn @ v
+
+        x = x.transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
 
 def get_eviction_model(model, k=5, algorithm="topk", eviction_policy=None):
-    if eviction_policy is not None and max(eviction_policy) > 0:
-        model.__class__ = SinkVisionTransformer
+    if eviction_policy is not None:# and max(eviction_policy) > 0:
+        # model.__class__ = SinkVisionTransformer
         for name, module in model.named_modules():
             if isinstance(module, Attention):
-                module.__class__ = SinkAttention
+                module.__class__ = GEMMAttention
+                # module.__class__ = SinkAttention
         
-            if isinstance(module, Block):
-                module.__class__ = SinkBlock
-        
-        for layer_idx in range(len(model.blocks)):
-            model.blocks[layer_idx].attn.eviction_config = dict(
-                largest=False,
-                has_cls = model.cls_token is not None,
-                k=k,
-                to_evict=eviction_policy[layer_idx],
-                algorithm=algorithm
-            ) 
+        #    if isinstance(module, Block):
+        #        module.__class__ = SinkBlock
+        #
+        #for layer_idx in range(len(model.blocks)):
+        #    model.blocks[layer_idx].attn.eviction_config = dict(
+        #        largest=False,
+        #        has_cls = model.cls_token is not None,
+        #        k=k,
+        #        to_evict=eviction_policy[layer_idx],
+        #        algorithm=algorithm
+        #    ) 
         
     return model
 
@@ -210,9 +257,9 @@ def get_eviction_policy(num_layers, start_layer=0, end_layer=1, after_end=0, to_
     return eviction_policy
 
 
-def patch_model_for_kv_eviction(model, k=5, algorithm="topk", to_evict=3, start_layer=0, end_layer=1, step=0, after_end=0):
+def patch_model_for_kv_eviction(model, k=5, algorithm="topk", to_evict=3, start_layer=0, end_layer=1, step=0, after_end=0, num_gemms=3):
     eviction_policy = get_eviction_policy(len(model.blocks), start_layer=start_layer, 
         end_layer=end_layer, to_evict=to_evict, step=step, after_end=after_end)
-    model = replace_qkv_with_unbound(model)
+    model = replace_qkv_with_unbound(model, num_gemms=num_gemms)
     model = get_eviction_model(model, k=k, algorithm=algorithm, eviction_policy=eviction_policy)
     return model

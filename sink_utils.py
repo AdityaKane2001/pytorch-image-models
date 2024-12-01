@@ -72,6 +72,25 @@ def get_eviction_schedule(start_layer=0, end_layer=1, num_layers=10, to_evict=3,
 
     return to_evicts
 
+
+@torch.no_grad()
+def split_qkv_weights_two(qkv_lin):
+    out_feats, in_feats = qkv_lin.weight.data.shape
+    new_out_feats = out_feats // 3
+    has_bias = qkv_lin.bias is not None
+
+    q = nn.Linear(in_feats, new_out_feats, bias=has_bias)
+    kv = nn.Linear(in_feats, 2 * new_out_feats, bias=has_bias)
+
+    q.weight.data = qkv_lin.weight.data[:new_out_feats]
+    kv.weight.data = qkv_lin.weight.data[new_out_feats:]
+
+    if has_bias:
+        q.bias.data = qkv_lin.bias.data[:new_out_feats]
+        kv.bias.data = qkv_lin.bias.data[new_out_feats:]
+   
+    return q, kv 
+
 @torch.no_grad()
 def split_qkv_weights(qkv_lin: torch.nn.Linear):
     out_feats, in_feats = qkv_lin.weight.data.shape
@@ -91,11 +110,22 @@ def split_qkv_weights(qkv_lin: torch.nn.Linear):
     return q, k, v
 
 @torch.no_grad()
-def replace_qkv_with_unbound(model: torch.nn.Module):
+def replace_qkv_with_unbound(model: torch.nn.Module, num_gemms=3):
     for name, module in model.named_modules():
         if isinstance(module, Attention) and hasattr(module, "qkv"):
-            q, k, v = split_qkv_weights(module.qkv)
-            module.q = q
-            module.k = k
-            module.v = v
+            if num_gemms == 3:
+                q, k, v = split_qkv_weights(module.qkv)
+                module.q = q
+                module.k = k
+                module.v = v
+                module.num_gemms = 3
+            elif num_gemms == 2:
+                q, kv = split_qkv_weights_two(module.qkv)
+                module.q = q
+                module.kv = kv
+                module.num_gemms = 2
+            elif num_gemms == 1:
+                module.num_gemms = 1
+            else:
+                raise AttributeError("num_gemms should be 1,2 or 3")
     return model 
