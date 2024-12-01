@@ -1,4 +1,6 @@
-readarray -t modellist < /workspace/akane/node-benchlist.txt
+readarray -t modellist < node-benchlist.txt
+
+SAVEDIR="/data/data0/akane/kv-evict-bench"
 
 echo "#####################"
 
@@ -16,7 +18,7 @@ do
        --evict-num=-1\
        --evict-after-end=-1\
        --amp\
-       --savedir="/home/users/akane/kv-evict-bench/"
+       --savedir=$SAVEDIR
 
     for num in $(seq 1 16)
     do
@@ -31,7 +33,7 @@ do
            --evict-num=$num\
            --evict-after-end=-1\
            --amp\
-           --savedir="/home/users/akane/kv-evict-bench/"
+           --savedir=$SAVEDIR
         echo "=========================="
         echo "Running $MODEL geometric mean with num=$num..."
         python3 -u benchmark-kv-evict.py \
@@ -43,7 +45,7 @@ do
            --evict-num=$num\
            --evict-after-end=-1\
            --amp\
-           --savedir="/home/users/akane/kv-evict-bench/"
+           --savedir=$SAVEDIR
 
         for k in $(seq 1 5)
         do
@@ -58,7 +60,7 @@ do
                --evict-num=$num\
                --evict-after-end=-1\
                --amp\
-               --savedir="/home/users/akane/kv-evict-bench/"
+               --savedir=$SAVEDIR
         done
     done
 done
