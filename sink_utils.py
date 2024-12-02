@@ -5,7 +5,6 @@ from timm.models.vision_transformer import Attention
 
 from vitsinks import sink_heuristics as sh
 
-
 @torch.no_grad()
 def get_topk_drop_mask(attn, k=5, to_evict=3, largest=False):
     _, to_keep_map = sh._topk_nothres(attn, k=k, to_evict=to_evict, largest=largest)
@@ -54,23 +53,23 @@ def prune_x(x, glbl_to_keep_map):
     return pruned_x
     
 
-def get_eviction_schedule(start_layer=0, end_layer=1, num_layers=10, to_evict=3, slope=1):
-    """
-    For every entry in `to_evicts`:
-    <0: Use full context.
-    =0: Use same context as last layer (maybe partially evicted).
-    >0: Evict more context from last layer.
-    """
+@torch.no_grad()
+def split_qkv_weights_two(qkv_lin):
+    out_feats, in_feats = qkv_lin.weight.data.shape
+    new_out_feats = out_feats // 3
+    has_bias = qkv_lin.bias is not None
 
-    to_evicts = [-1 for _ in range(num_layers)]
+    q = nn.Linear(in_feats, new_out_feats, bias=has_bias)
+    kv = nn.Linear(in_feats, 2 * new_out_feats, bias=has_bias)
 
-    assert start_layer <= end_layer and end_layer < num_layers
+    q.weight.data = qkv_lin.weight.data[:new_out_feats]
+    kv.weight.data = qkv_lin.weight.data[new_out_feats:]
 
-    for layer_idx in range(num_layers):
-        if layer_idx >= start_layer and layer_idx < end_layer:
-            to_evicts[layer_idx] = to_evict
-
-    return to_evicts
+    if has_bias:
+        q.bias.data = qkv_lin.bias.data[:new_out_feats]
+        kv.bias.data = qkv_lin.bias.data[new_out_feats:]
+   
+    return q, kv 
 
 @torch.no_grad()
 def split_qkv_weights(qkv_lin: torch.nn.Linear):
@@ -90,12 +89,3 @@ def split_qkv_weights(qkv_lin: torch.nn.Linear):
 
     return q, k, v
 
-@torch.no_grad()
-def replace_qkv_with_unbound(model: torch.nn.Module):
-    for name, module in model.named_modules():
-        if isinstance(module, Attention) and hasattr(module, "qkv"):
-            q, k, v = split_qkv_weights(module.qkv)
-            module.q = q
-            module.k = k
-            module.v = v
-    return model 

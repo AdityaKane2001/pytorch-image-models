@@ -15,14 +15,13 @@ import torch.utils.checkpoint
 
 from timm.models.vision_transformer import VisionTransformer, Block, Attention
 
-from sink_utils import update_keepmap, prune_x, replace_qkv_with_unbound
+from sink_utils import update_keepmap, prune_x, split_qkv_weights, split_qkv_weights_two 
 
 class SinkAttention(Attention):
     def check_patching(self):
         has_q = hasattr(self, "q")
-        has_k = hasattr(self, "k")
-        has_v = hasattr(self, "v")
-        has_qkv_unbound = has_q and has_k and has_v        
+        has_kv = hasattr(self, "kv")
+        has_qkv_unbound = has_q and has_kv        
 
         cfg_keys = list(self.eviction_config.keys())
         has_cls = "has_cls" in cfg_keys
@@ -56,7 +55,6 @@ class SinkAttention(Attention):
                     raise ValueError("Got self.to_evict > 0, but past_attn was not supplied.")
                 elif to_keep_map is None:
                     raise ValueError("Got self.to_evict > 0, but to_keep_map was not supplied.")
-    
 
             q = self.q(x).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
         
@@ -64,8 +62,8 @@ class SinkAttention(Attention):
                  largest=ecfg["largest"], has_cls=ecfg["has_cls"], algorithm=ecfg["algorithm"])
             pruned_x = prune_x(x, to_keep_map) 
 
-            k = self.k(pruned_x).view(B, -1, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
-            v = self.v(pruned_x).view(B, -1, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+            kv = self.kv(pruned_x).view(B, N, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            k, v = kv.unbind(0)
         else:
             qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
             q, k, v = qkv.unbind(0)
@@ -73,18 +71,11 @@ class SinkAttention(Attention):
 
         q, k = self.q_norm(q), self.k_norm(k)
 
-        if False:
-            x = F.scaled_dot_product_attention(
-                q, k, v,
-                dropout_p=self.attn_drop.p if self.training else 0.,
-            )
-
-        else:
-            q = q * self.scale
-            attn = q @ k.transpose(-2, -1)
-            attn = attn.softmax(dim=-1)
-            attn = self.attn_drop(attn)
-            x = attn @ v
+        q = q * self.scale
+        attn = q @ k.transpose(-2, -1)
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+        x = attn @ v
 
         x = x.transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
@@ -129,13 +120,89 @@ class SinkVisionTransformer(VisionTransformer):
         x, to_keep_map, past_attn = x
         x = self.norm(x)
         return x
-    
+
+
+class UnboundQKVAttention(Attention):   
+    def forward(self,x):
+        B, N, C = x.shape
+        if self.num_gemms == 1:
+            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            q, k, v = qkv.unbind(0)
+
+        elif self.num_gemms == 2:
+            q = self.q(x).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+            kv = self.kv(x).view(B, N, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            k, v = kv.unbind(0)
+
+        elif self.num_gemms == 3:
+            q = self.q(x).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+            k = self.k(x).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+            v = self.v(x).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+
+        else:
+            raise AttributeError("either of one,two, three gemm should be true")
+        
+        q, k = self.q_norm(q), self.k_norm(k)
+
+        if self.fused_attn:
+            x = F.scaled_dot_product_attention(
+                q, k, v,
+                dropout_p=self.attn_drop.p if self.training else 0.,
+            )
+        else:
+            q = q * self.scale
+            attn = q @ k.transpose(-2, -1)
+            ##############################################
+            attn = self.attn_logits_identity(attn)
+            ##############################################
+            
+            attn = attn.softmax(dim=-1)
+            ##############################################
+            attn = self.attn_map_identity(attn)
+            ##############################################
+            attn = self.attn_drop(attn)
+            x = attn @ v
+
+        x = x.transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
+
+@torch.no_grad()
+def replace_qkv_with_unbound(model: torch.nn.Module, num_gemms=3):
+    for name, module in model.named_modules():
+        if isinstance(module, Attention) and hasattr(module, "qkv"):
+            if num_gemms == 3:
+                q, k, v = split_qkv_weights(module.qkv)
+                module.q = q
+                module.k = k
+                module.v = v
+                module.num_gemms = 3
+            elif num_gemms == 2:
+                q, kv = split_qkv_weights_two(module.qkv)
+                module.q = q
+                module.kv = kv
+                module.num_gemms = 2
+            elif num_gemms == 1:
+                module.num_gemms = 1
+            else:
+                raise AttributeError("num_gemms should be 1,2 or 3")
+    return model 
+
+
+def get_qkv_unbound_model(model, num_gemms=2):
+    if eviction_policy is not None:
+        for name, module in model.named_modules():
+            if isinstance(module, attention):
+                module.__class__ = UnboundQKVAttention
+
 
 def get_eviction_model(model, k=5, algorithm="topk", eviction_policy=None):
     if eviction_policy is not None and max(eviction_policy) > 0:
-        model.__class__ = SinkVisionTransformer
+        model.__class__ = SinkVisionTransformer 
         for name, module in model.named_modules():
-            if isinstance(module, Attention):
+            if isinstance(module, attention):
                 module.__class__ = SinkAttention
         
             if isinstance(module, Block):
@@ -210,9 +277,17 @@ def get_eviction_policy(num_layers, start_layer=0, end_layer=1, after_end=0, to_
     return eviction_policy
 
 
-def patch_model_for_kv_eviction(model, k=5, algorithm="topk", to_evict=3, start_layer=0, end_layer=1, step=0, after_end=0):
-    eviction_policy = get_eviction_policy(len(model.blocks), start_layer=start_layer, 
-        end_layer=end_layer, to_evict=to_evict, step=step, after_end=after_end)
-    model = replace_qkv_with_unbound(model)
-    model = get_eviction_model(model, k=k, algorithm=algorithm, eviction_policy=eviction_policy)
+def patch_model_for_kv_eviction(model, k=5, algorithm="topk", to_evict=3, start_layer=0, end_layer=1, step=0, after_end=0, num_gemms=3):
+    
+    model = replace_qkv_with_unbound(model, num_gemms=num_gemms)
+    
+    if k == 0:
+        model = get_qkv_unbound_model(model, num_gemms=num_gemms)
+
+    elif k > 0:
+        eviction_policy = get_eviction_policy(len(model.blocks), start_layer=start_layer, 
+            end_layer=end_layer, to_evict=to_evict, step=step, after_end=after_end)
+    
+        model = get_eviction_model(model, k=k, algorithm=algorithm, eviction_policy=eviction_policy)
+
     return model
