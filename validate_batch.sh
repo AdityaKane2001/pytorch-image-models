@@ -3,8 +3,8 @@ readarray -t modellist < /workspace/akane/node-modellist.txt
 for MODEL in "${modellist[@]}"
 do
     echo "#############################################################"
-    echo "Running $MODEL unpruned..."
-    ./unpruned.sh $MODEL 2>&1 | tee -a outfiles/$MODEL-unpruned.txt
+    # echo "Running $MODEL unpruned..."
+    # ./unpruned.sh $MODEL 2>&1 | tee -a outfiles/$MODEL-unpruned.txt
     echo "=========================="
 
     for num in $(seq 1 16)
