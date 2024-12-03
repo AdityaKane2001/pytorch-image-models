@@ -103,7 +103,7 @@ class SinkAttention(Attention):
         
         return has_qkv_unbound, has_k and has_v, has_kv, has_pruning_params
 
-    def check_eviction_cfg(self):
+    def check_eviction_cfg(self, to_keep_map, past_attn):
         has_qkv_unbound, has_kandv, has_kv, has_pruning_params = self.check_patching()
         ecfg = self.eviction_config
         
@@ -128,7 +128,7 @@ class SinkAttention(Attention):
     def forward(self, x: torch.Tensor, to_keep_map: torch.Tensor = None, past_attn: torch.Tensor = None) -> torch.Tensor:
         B, N, C = x.shape
 
-        self.check_eviction_cfg()
+        self.check_eviction_cfg(to_keep_map, past_attn)
 
         has_qkv_unbound, has_kandv, has_kv, has_pruning_params = self.check_patching()
         ecfg = self.eviction_config
@@ -139,7 +139,6 @@ class SinkAttention(Attention):
                  largest=ecfg["largest"], has_cls=ecfg["has_cls"], algorithm=ecfg["algorithm"])
             
             pruned_x = prune_x(x, to_keep_map) 
-            
 
             q = self.q(x).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
 
@@ -147,7 +146,7 @@ class SinkAttention(Attention):
                 k = self.k(pruned_x).view(B, -1, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
                 v = self.v(pruned_x).view(B, -1, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
             elif has_kv:
-                kv = self.kv(x).view(B, N, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+                kv = self.kv(pruned_x).view(B, -1, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
                 k, v = kv.unbind(0)
         
         else:
@@ -314,7 +313,7 @@ def get_instant_pruning_eviction_policy(num_layers, eviction_policy_str, to_evic
         eviction_policy[prune_idx] = to_evict
  
     print(f"{eviction_policy=}")
-
+    return eviction_policy
 
 def patch_model_for_kv_eviction(model, k=5, algorithm="topk", eviction_policy=None, to_evict=3, 
     start_layer=0, end_layer=1, step=0, after_end=0, num_gemms=2):
