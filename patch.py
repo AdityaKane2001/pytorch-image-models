@@ -320,7 +320,7 @@ def patch_model_for_kv_eviction(model, k=5, algorithm="topk", eviction_policy=No
     start_layer=0, end_layer=1, step=0, after_end=0, num_gemms=2):
     
     if eviction_policy is not None and isinstance(eviction_policy, str):
-        eviction_policy = get_instant_pruning_eviction_policy(len(model.blocks), eviction_policy)
+        eviction_policy = get_instant_pruning_eviction_policy(len(model.blocks), eviction_policy, to_evict=to_evict)
     elif k > 0:
         eviction_policy = get_constantly_decreasing_eviction_policy(len(model.blocks), start_layer=start_layer, 
             end_layer=end_layer, to_evict=to_evict, step=step, after_end=after_end)
