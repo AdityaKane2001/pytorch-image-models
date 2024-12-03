@@ -7,7 +7,12 @@ do
     # ./unpruned.sh $MODEL 2>&1 | tee -a outfiles/$MODEL-unpruned.txt
     echo "=========================="
 
-    for num in $(seq 1 16)
+    # Since this is the 3-spot algorithm, we will be trying a larger magnitude of 
+    # kv eviction number
+
+    nums=(1 2 4 8 16 32 48 64)
+
+    for num in ${nums[@]}
     do
         echo "=========================="
         echo "Running $MODEL arithmetic mean with num=$num..."
