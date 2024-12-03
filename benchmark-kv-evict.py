@@ -39,12 +39,14 @@ parser.add_argument('--log-freq', default=500, type=int)
 parser.add_argument('--amp', action='store_true', default=False,
                     help='Use AMP mixed precision. Defaults to Apex, fallback to native Torch AMP.')
 parser.add_argument("--evict-algo", default="topk", type=str)
+parser.add_argument("--evict-policy", default=None, type=str)
 parser.add_argument("--evict-k", default=0, type=int)
 parser.add_argument("--evict-start", default=0, type=float)
 parser.add_argument("--evict-end", default=0, type=float)
 parser.add_argument("--evict-num", default=0, type=int)
 parser.add_argument("--evict-after-end", default=-1, type=int)
 parser.add_argument("--evict-step", default=0, type=int)
+parser.add_argument("--evict-num-gemms", default=2, type=int)
 parser.add_argument("--savedir", default=None, type=str)
 
 
@@ -59,17 +61,19 @@ def validate(args):
         num_classes=args.num_classes,
         in_chans=3)
     
-    if args.evict_k > 0:
-        model = patch_model_for_kv_eviction(
-            model, 
-            algorithm=args.evict_algo,
-            k=args.evict_k,
-            to_evict=args.evict_num,
-            start_layer=args.evict_start,
-            end_layer=args.evict_end,
-            after_end=args.evict_after_end,
-            step=args.evict_step
-        )
+
+    model = patch_model_for_kv_eviction(
+        model, 
+        algorithm=args.evict_algo,
+        k=args.evict_k,
+        to_evict=args.evict_num,
+        start_layer=args.evict_start,
+        end_layer=args.evict_end,
+        after_end=args.evict_after_end,
+        step=args.evict_step,
+        eviction_policy=args.evict_policy,
+        num_gemms=args.evict_num_gemms
+    )
 
     model = model.cuda()
     if args.num_classes is None:
