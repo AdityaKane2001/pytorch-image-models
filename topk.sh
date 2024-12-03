@@ -7,6 +7,7 @@ python3 -u validate.py --data-dir /data/datasets/ImageNet/ \
     --evict-end=-1\
     --evict-num=$2\
     --evict-after-end=-1\
+    --evict-num-gemms=2\
     --amp\
     --results-format="json"\
     --batch-size=1024\

@@ -12,7 +12,7 @@ python3 -u validate.py --data-dir /data/datasets/ImageNet/ \
     --batch-size=1024\
     --workers=32\
     --num-gpu=8\
-    --num-gemms=2\
+    --evict-num-gemms=2\
     --savedir="/home/users/akane/kv-evict-results-3spot-policy/$1/geometric_mean/"\
     --pretrained
 
