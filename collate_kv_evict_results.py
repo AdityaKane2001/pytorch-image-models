@@ -6,8 +6,8 @@ import pandas as pd
 
 
 @click.command()
-@click.option("--results-root", default="/home/users/akane/kv-evict-results", type=str, help="Root directory of all results")
-@click.option("--output-json-filepath", default="/home/users/akane/kv-evict-results-collated.json", type=str, help="JSON savepath for all results")
+@click.option("--results-root", default="/home/users/akane/kv-evict-results-3spot-policy", type=str, help="Root directory of all results")
+@click.option("--output-json-filepath", default="/home/users/akane/kv-evict-results-3spot-policy-collated.json", type=str, help="JSON savepath for all results")
 @click.option("--max-num", default=16, type=int, help="Max eviction number used for the sweep")
 def main(results_root, output_json_filepath, max_num):
     """Collates all KV eviction runs' results in one json file"""
@@ -18,11 +18,13 @@ def main(results_root, output_json_filepath, max_num):
             model_name = dirpath.split("/")[-1]
             results_dict[model_name] = dict()
     
-            for num in range(1, max_num + 1):
+            for num in [1,2,4,8,16,32,48,64]: #range(1, max_num + 1):
                 results_dict[model_name][num] = dict() 
                 results_dict[model_name][num]["topk"] = dict()
             
             unpruned_file = sorted(glob.glob(os.path.join(dirpath, "unpruned/*.json")))
+            print(dirpath)
+            print(glob.glob(os.path.join(dirpath, "unpruned/*.json")))
             assert len(unpruned_file) == 1
             with open(unpruned_file[0],  "r") as f:
                 unpruned_stats = json.load(f)
@@ -62,8 +64,8 @@ def main(results_root, output_json_filepath, max_num):
 
 
 @click.command()
-@click.option("--json-path", default="/home/users/akane/kv-evict-results-collated.json")
-@click.option("--csv-path", default="/home/users/akane/kv-evict-results-collated.csv")
+@click.option("--json-path", default="/home/users/akane/kv-evict-results-3spot-policy-collated.json")
+@click.option("--csv-path", default="/home/users/akane/kv-evict-results-3spot-policy-collated.csv")
 @click.option("--max-num", default=16, type=int, help="Max eviction number used for the sweep")
 @click.option("--max-k", default=5, type=int, help="Max topk k used for the sweep")
 def convert_json_to_csv(json_path, csv_path, max_num, max_k):
@@ -82,7 +84,7 @@ def convert_json_to_csv(json_path, csv_path, max_num, max_k):
 
  
     for model_name in all_models:
-        for num in range(1, max_num + 1):
+        for num in [1,2,4,8,16,32,48,64]: #range(1, max_num + 1):
             try:
                 unpruned = results_dict[model_name]["unpruned"] 
                 arithmetic_mean = results_dict[model_name][str(num)]["arithmetic_mean"]
