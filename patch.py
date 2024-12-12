@@ -15,7 +15,7 @@ import torch.utils.checkpoint
 
 from timm.models.vision_transformer import VisionTransformer, Block, Attention
 
-from sink_utils import update_keepmap, prune_x, split_qkv_weights, split_qkv_weights_two
+from sink_utils import update_keepmap, prune_x, sort_x_importance, split_qkv_weights, split_qkv_weights_two
 
 @torch.no_grad()
 def replace_qkv_with_unbound(model: torch.nn.Module, num_gemms=3):
@@ -93,6 +93,8 @@ class SinkAttention(Attention):
         has_kv = hasattr(self, "kv")
         has_qkv_unbound = has_q and ((has_k and has_v) or has_kv)
 
+        assert (has_k and has_v) ^ (has_kv), "SinkAttention needs to have exactly one of {k, v} and kv."
+
         cfg_keys = list(self.eviction_config.keys())
         has_cls = "has_cls" in cfg_keys
         has_evict_k = "k" in cfg_keys
@@ -113,7 +115,7 @@ class SinkAttention(Attention):
         assert has_qkv_unbound, "QKV not unbound!"
 
         if ecfg["to_evict"] == 0 and to_keep_map is None:
-            raise ValueError("Got self.to_evict > 0, but to_keep_map was not supplied.")
+            raise ValueError("Got self.to_evict == 0, but to_keep_map was not supplied.")
 
         if ecfg["to_evict"] > 0:
             if past_attn is None:
@@ -150,8 +152,17 @@ class SinkAttention(Attention):
                 k, v = kv.unbind(0)
         
         else:
-            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-            q, k, v = qkv.unbind(0)
+            if has_kandv: 
+                q = self.q(x).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+                k = self.k(x).view(B, -1, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+                v = self.v(x).view(B, -1, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+            elif has_kv:
+                q = self.q(x).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+                kv = self.kv(x).view(B, -1, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+                k, v = kv.unbind(0)
+            else:
+                qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+                q, k, v = qkv.unbind(0)
             to_keep_map = torch.arange(N, device=q.device).unsqueeze(0).expand(B, -1)
 
         q, k = self.q_norm(q), self.k_norm(k)
@@ -167,6 +178,87 @@ class SinkAttention(Attention):
         x = self.proj_drop(x)
  
         return x, to_keep_map, attn
+
+
+
+class SortedSinkAttention(SinkAttention):
+    def check_eviction_cfg(self, to_keep_map, past_attn):
+        has_qkv_unbound, has_kandv, has_kv, has_pruning_params = self.check_patching()
+        ecfg = self.eviction_config
+        
+        if not has_pruning_params:
+            raise ValueError("Patching not done properly!")
+
+        assert has_qkv_unbound, "QKV not unbound!"
+
+        if ecfg["to_evict"] > 0:
+            if past_attn is None:
+                raise ValueError("Got self.to_evict > 0, but past_attn was not supplied.")
+
+        if not (has_kandv or has_kv):
+            raise AttributeError(f"{self.__class__} instance should have k and v, or kv.")         
+    
+    def forward(self, x, to_keep_map, past_attn):
+        B, N, C = x.shape 
+        self.check_eviction_cfg(to_keep_map, past_attn)
+
+        has_qkv_unbound, has_kandv, has_kv, has_pruning_params = self.check_patching()
+        ecfg = self.eviction_config
+
+        if ecfg["to_evict"] >= 0:
+
+            if ecfg["to_evict"] > 0:
+                # to_keep_map = update_keepmap(past_attn, to_keep_map, k=ecfg["k"], to_evict=ecfg["to_evict"], 
+                #     largest=ecfg["largest"], has_cls=ecfg["has_cls"], algorithm=ecfg["algorithm"])
+                
+                x = sort_x_importance(x, past_attn, to_evict=ecfg["to_evict"], k=ecfg["k"], largest=ecfg["largest"], has_cls=ecfg["has_cls"], algorithm=ecfg["algorithm"])
+                                
+                pruned_N = past_attn.shape[-1] - ecfg["to_evict"]
+                to_keep_map = None
+
+            if ecfg["to_evict"] == 0:
+                pruned_N = past_attn.shape[-1]
+
+            pruned_x = x[..., :pruned_N,:]
+
+            q = self.q(x).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+
+            if has_kandv: 
+                k = self.k(pruned_x).view(B, -1, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+                v = self.v(pruned_x).view(B, -1, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+            elif has_kv:
+                kv = self.kv(pruned_x).view(B, -1, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+                k, v = kv.unbind(0)
+        
+        else:
+            if has_kandv: 
+                q = self.q(x).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+                k = self.k(x).view(B, -1, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+                v = self.v(x).view(B, -1, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+            elif has_kv:
+                q = self.q(x).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+                kv = self.kv(x).view(B, -1, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+                k, v = kv.unbind(0)
+            else:
+                qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+                q, k, v = qkv.unbind(0)
+            to_keep_map = torch.arange(N, device=q.device).unsqueeze(0).expand(B, -1)
+
+        q, k = self.q_norm(q), self.k_norm(k)
+
+        q = q * self.scale
+        attn = q @ k.transpose(-2, -1)
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+        x = attn @ v
+
+        x = x.transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+ 
+        return x, to_keep_map, attn
+
+
 
 
 class SinkBlock(Block):
@@ -212,7 +304,7 @@ def get_eviction_model(model, k=5, algorithm="topk", eviction_policy=None):
         model.__class__ = SinkVisionTransformer
         for name, module in model.named_modules():
             if isinstance(module, Attention):
-                module.__class__ = SinkAttention
+                module.__class__ = SortedSinkAttention
         
             if isinstance(module, Block):
                 module.__class__ = SinkBlock

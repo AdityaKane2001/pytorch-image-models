@@ -47,11 +47,53 @@ def update_keepmap(attn_map, glbl_to_keep_map, k=5, to_evict=3, algorithm="topk"
 
 
 @torch.no_grad()
+def sort_x_importance(x, attn_map, to_evict=3, k=5, algorithm="topk", largest=False, has_cls=True):
+    if int(to_evict) == 0:
+        return x 
+
+    if algorithm == "topk":
+        func = sh._topk_nothres
+    elif algorithm == "arithmetic_mean":
+        func = sh._mean_colwise_thres
+    elif algorithm == "geometric_mean":
+        func = sh._geomean_colwise_thres
+    else:
+        raise ValueError()
+
+    B, H, Nq, Nc = attn_map.shape
+
+    if not float(to_evict).is_integer():
+        to_evict = round(Nc * to_evict)
+        assert Nc > to_evict, f"Cannot evict more context than what is present, {to_evict=}, {Nc=}!"
+    to_evict = int(to_evict)
+
+    to_del_map, to_keep_map = func(attn_map, k=k, to_evict=to_evict, largest=largest, has_cls=has_cls)
+    new_order = torch.cat([to_keep_map, to_del_map], axis=-1)
+
+
+    if new_order.shape[-1] < x.shape[-1] - 1 and has_cls:
+        added_token_idxs = torch.arange(start=new_order.shape[-1] + 1, end=x.shape[-2],
+            device=new_order.device, dtype=new_order.dtype).unsqueeze(0).expand(B, -1)
+        new_order = torch.cat([new_order, added_token_idxs], dim=-1)
+        new_order = torch.cat([torch.zeros(B, 1, device=new_order.device, dtype=new_order.dtype), new_order], dim=-1)
+    
+    if new_order.shape[-1] < x.shape[-1] and not has_cls:
+        added_token_idxs = torch.arange(start=new_order.shape[-1], end=x.shape[-2],
+            device=new_order.device, dtype=new_order.dtype).unsqueeze(0).expand(B, -1)
+        new_order = torch.cat([new_order, added_token_idxs], dim=-1)
+
+    new_index = new_order.unsqueeze(-1).expand(-1, -1, x.shape[-1])
+
+    x = torch.gather(x, dim=-2, index=new_index)
+
+    return x
+    
+@torch.no_grad()
 def prune_x(x, glbl_to_keep_map):
     glbl_to_keep_index = glbl_to_keep_map.unsqueeze(-1).expand(-1, -1, x.shape[-1])
     pruned_x = torch.gather(x, dim=-2, index=glbl_to_keep_index)
     return pruned_x
-    
+ 
 
 @torch.no_grad()
 def split_qkv_weights_two(qkv_lin):
