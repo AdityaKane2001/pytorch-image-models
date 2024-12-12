@@ -1,6 +1,6 @@
 readarray -t modellist < node-benchlist.txt
 
-SAVEDIR="/data/data0/akane/kv-evict-bench"
+SAVEDIR="/data/data0/akane/kv-evict-3spot-bench"
 
 echo "#####################"
 
@@ -20,7 +20,11 @@ do
        --amp\
        --savedir=$SAVEDIR
 
-    for num in $(seq 1 16)
+
+    nums=(1 2 4 8 16 32 48 64)
+
+    for num in ${nums[@]}
+    #for num in $(seq 1 16)
     do
         echo "=========================="
         echo "Running $MODEL arithmetic mean with num=$num..."
@@ -33,6 +37,8 @@ do
            --evict-num=$num\
            --evict-after-end=-1\
            --amp\
+           --evict-num-gemms=2\
+           --evict-policy="0.25,0.5,0.75"\
            --savedir=$SAVEDIR
         echo "=========================="
         echo "Running $MODEL geometric mean with num=$num..."
@@ -45,6 +51,8 @@ do
            --evict-num=$num\
            --evict-after-end=-1\
            --amp\
+           --evict-num-gemms=2\
+           --evict-policy="0.25,0.5,0.75"\
            --savedir=$SAVEDIR
 
         for k in $(seq 1 5)
@@ -60,6 +68,8 @@ do
                --evict-num=$num\
                --evict-after-end=-1\
                --amp\
+               --evict-num-gemms=2\
+               --evict-policy="0.25,0.5,0.75"\
                --savedir=$SAVEDIR
         done
     done

@@ -69,8 +69,8 @@ def main(results_root, output_json_filepath, max_num):
 
 
 @click.command()
-@click.option("--json-path", default="/data/data0/akane/kv-evict-3spot-bench-collated.json")
-@click.option("--csv-path", default="/data/data0/akane/kv-evict-3spot-bench-collated.csv")
+@click.option("--json-path", default="/data/data0/akane/kv-evict-bench-collated.json")
+@click.option("--csv-path", default="/data/data0/akane/kv-evict-bench-collated.csv")
 @click.option("--max-num", default=16, type=int, help="Max eviction number used for the sweep")
 @click.option("--max-k", default=5, type=int, help="Max topk k used for the sweep")
 def convert_json_to_csv(json_path, csv_path, max_num, max_k):
@@ -117,5 +117,5 @@ def convert_json_to_csv(json_path, csv_path, max_num, max_k):
     df.to_csv(csv_path, header=True, index=False)
 
 if __name__ == "__main__":
-    # main()
-    convert_json_to_csv()
+    main()
+    # convert_json_to_csv()
