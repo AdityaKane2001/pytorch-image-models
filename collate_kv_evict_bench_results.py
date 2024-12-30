@@ -6,8 +6,8 @@ import pandas as pd
 
 
 @click.command()
-@click.option("--results-root", default="/data/data0/akane/kv-evict-3spot-bench", type=str, help="Root directory of all results")
-@click.option("--output-json-filepath", default="/data/data0/akane/kv-evict-3spot-bench-collated.json", type=str, help="JSON savepath for all results")
+@click.option("--results-root", default="/data/data0/akane/kv-evict-3spot-bench-sortx", type=str, help="Root directory of all results")
+@click.option("--output-json-filepath", default="/data/data0/akane/kv-evict-3spot-bench-sortx-collated.json", type=str, help="JSON savepath for all results")
 @click.option("--max-num", default=16, type=int, help="Max eviction number used for the sweep")
 def main(results_root, output_json_filepath, max_num):
     """Collates all KV eviction runs' results in one json file"""
@@ -69,8 +69,8 @@ def main(results_root, output_json_filepath, max_num):
 
 
 @click.command()
-@click.option("--json-path", default="/data/data0/akane/kv-evict-3spot-bench-collated.json")
-@click.option("--csv-path", default="/data/data0/akane/kv-evict-3spot-bench-collated.csv")
+@click.option("--json-path", default="/data/data0/akane/kv-evict-3spot-bench-sortx-collated.json")
+@click.option("--csv-path", default="/data/data0/akane/kv-evict-3spot-bench-sortx-collated.csv")
 @click.option("--max-num", default=16, type=int, help="Max eviction number used for the sweep")
 @click.option("--max-k", default=5, type=int, help="Max topk k used for the sweep")
 def convert_json_to_csv(json_path, csv_path, max_num, max_k):

@@ -1,6 +1,6 @@
 readarray -t modellist < node-benchlist.txt
 
-SAVEDIR="/data/data0/akane/kv-evict-3spot-bench"
+SAVEDIR="/data/data0/akane/kv-evict-3spot-bench-sortx"
 
 echo "#####################"
 
@@ -10,15 +10,16 @@ do
     echo "=========================="
     echo "Running $MODEL unpruned..."
     python3 -u benchmark-kv-evict.py \
-       --model=$MODEL\
-       --evict-algo="none"\
-       --evict-k=-1\
-       --evict-start=-1\
-       --evict-end=-1\
-       --evict-num=-1\
-       --evict-after-end=-1\
-       --amp\
-       --savedir=$SAVEDIR
+        --model=$MODEL\
+        --evict-algo="none"\
+        --evict-k=0\
+        --evict-start=-1\
+        --evict-end=-1\
+        --evict-num=-1\
+        --evict-after-end=-1\
+        --evict-num-gemms=2\
+        --amp\
+        --savedir=$SAVEDIR
 
 
     nums=(1 2 4 8 16 32 48 64)

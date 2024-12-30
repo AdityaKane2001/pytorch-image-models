@@ -9,7 +9,9 @@ import logging
 import torch
 import torch.nn as nn
 import torch.nn.parallel
-from collections import OrderedDict
+from torch.profiler import profile, record_function, ProfilerActivity
+
+from collections import OrderedDict, defaultdict
 from contextlib import suppress
 import json
 from timm.models import create_model, is_model, list_models
@@ -27,15 +29,15 @@ torch.backends.cudnn.allow_tf32 = True
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Validation')
 parser.add_argument('--model', '-m', metavar='NAME', default='dpn92',
                     help='model architecture (default: dpn92)')
-parser.add_argument('-b', '--batch-size', default=2, type=int,
+parser.add_argument('-b', '--batch-size', default=128, type=int,
                     metavar='N', help='mini-batch size (default: 1)')
 parser.add_argument('--img-size', default=224, type=int,
                     metavar='N', help='Input image dimension, uses model default if empty')
 parser.add_argument('--num-classes', type=int, default=1000,
                     help='Number classes in dataset')
-parser.add_argument('--num-warmup', default=25, type=int)
-parser.add_argument('--num-iters', default=200, type=int)
-parser.add_argument('--log-freq', default=500, type=int)
+parser.add_argument('--num-warmup', default=10, type=int)
+parser.add_argument('--num-iters', default=50, type=int)
+parser.add_argument('--log-freq', default=5000, type=int)
 parser.add_argument('--amp', action='store_true', default=False,
                     help='Use AMP mixed precision. Defaults to Apex, fallback to native Torch AMP.')
 parser.add_argument("--evict-algo", default="topk", type=str)
@@ -48,6 +50,8 @@ parser.add_argument("--evict-after-end", default=-1, type=int)
 parser.add_argument("--evict-step", default=0, type=int)
 parser.add_argument("--evict-num-gemms", default=2, type=int)
 parser.add_argument("--savedir", default=None, type=str)
+parser.add_argument("--profile", action="store_true", default=False)
+parser.add_argument("--model-slice", default=None, type=str)
 
 
 def validate(args):
@@ -72,8 +76,18 @@ def validate(args):
         after_end=args.evict_after_end,
         step=args.evict_step,
         eviction_policy=args.evict_policy,
-        num_gemms=args.evict_num_gemms
+        num_gemms=args.evict_num_gemms,
+        profile=args.profile
     )
+
+    if args.model_slice is not None:
+        slice_bounds = args.model_slice.split(",")
+        start, end = int(slice_bounds[0]), int(slice_bounds[1])
+        model.blocks = model.blocks[start:end]
+        print(f"Sliced the model from {start}th layer to {end}th layer.")
+    else:
+        print("Model not sliced, running entire model.")
+
 
     model = model.cuda()
     if args.num_classes is None:
@@ -100,7 +114,7 @@ def validate(args):
     elif args.model.endswith("384"):
         image_size = 384
     else:
-        image_size = args.image_size
+        image_size = args.img_size
     input = torch.randn((args.batch_size, 3, image_size, image_size)).cuda()
     input = input.contiguous(memory_format=torch.channels_last)
     
@@ -110,13 +124,21 @@ def validate(args):
     
     #model.to(torch.float16)
     #input = input.to(torch.float16)        
+    if args.profile:
+        average_timing_dict = defaultdict(list)
 
     with torch.no_grad(): 
         for batch_idx in range(num_iters):
             starter, ender = torch.cuda.Event(enable_timing=True),   torch.cuda.Event(enable_timing=True)
             starter.record()
             with amp_autocast():
-                output = model(input)
+                if args.profile:
+                    instance_timing_dict = dict()
+                    output = model(input, instance_timing_dict)
+                    for k, v in instance_timing_dict.items():
+                        average_timing_dict[k].append(v)
+                else:
+                    output = model(input)
             ender.record()
             torch.cuda.synchronize()
             elapsed = starter.elapsed_time(ender)/1000
@@ -131,6 +153,11 @@ def validate(args):
                         'Time: {batch_time.val:.3f}s ({batch_time.avg:.3f}s, {rate_avg:>7.2f}/s)'.format(
                             batch_idx, num_iters, batch_time=batch_time,
                             rate_avg=input.size(0) / batch_time.avg))
+
+    if args.profile:
+        for k, v in average_timing_dict.items():
+            print(f"{k=} ", sum(v) / len(v))
+
 
     timea = batch_time.avg
     results = OrderedDict(
