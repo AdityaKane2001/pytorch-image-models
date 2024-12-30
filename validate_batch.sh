@@ -10,7 +10,7 @@ do
     # Since this is the 3-spot algorithm, we will be trying a larger magnitude of 
     # kv eviction number
 
-    nums=(1 2 4 8 16 32 48 64)
+    nums=(2 4 8 16 32 48 64)
 
     for num in ${nums[@]}
     do

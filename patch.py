@@ -482,7 +482,10 @@ class SeedkeyAttention(Attention):
 
         q = q * self.scale
         attn = q @ k.transpose(-2, -1)
-        querywise_argmin = torch.argmin(attn, dim=-1)
+        try:        
+            querywise_argmin = torch.argmin(attn, dim=-1)
+        except:
+            print(f"Argmin failed with {attn.shape=}")
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
         x = attn @ v

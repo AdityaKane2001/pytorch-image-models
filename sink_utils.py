@@ -29,6 +29,8 @@ def update_seedkey_keepmap(querywise_argmin, k, glbl_to_keep_map, to_evict=3, he
     if to_evict == 0:
         return glbl_to_keep_map
 
+    # Implement for to_evict==1
+
     if heads_first:
         headmode_idx = 1
         seqmode_idx = 2
