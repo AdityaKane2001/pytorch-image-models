@@ -12,6 +12,6 @@ python3 -u validate.py --data-dir /data/datasets/ImageNet/ \
    --workers=32\
    --num-gpu=8\
    --evict-num-gemms=2\
-   --savedir="/home/users/akane/kv-evict-3spot-policy/$1/unpruned/"\
+   --savedir="/home/users/akane/kv-evict-3spot-policy-sortx/$1/unpruned/"\
    --pretrained
 

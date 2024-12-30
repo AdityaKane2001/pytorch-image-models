@@ -63,8 +63,9 @@ def update_seedkey_keepmap(querywise_argmin, k, glbl_to_keep_map, to_evict=3, he
     # restkey_map = delete_one(seedkey_idx, k.shape[-2]).unsqueeze(-1).expand(-1, -1, k.shape[-1])
     seedkey = torch.gather(keys, index=seedkey_map, dim=-2)
     restkey = torch.gather(keys, index=restkey_map, dim=-2)
-    impmap = torch.nn.functional.cosine_similarity(restkey, seedkey, dim=-1)
-    impsort = torch.argsort(impmap, dim=-1, descending=True, stable=True)
+    # impmap = torch.nn.functional.cosine_similarity(restkey, seedkey, dim=-1)
+    impmap = restkey @ seedkey.transpose(-1, -2)
+    impsort = torch.argsort(impmap[..., 0], dim=-1, descending=True, stable=True)
 
     if has_cls:
         impsort = torch.cat([torch.zeros(k.shape[0], 1, device=glbl_to_keep_map.device, dtype=glbl_to_keep_map.dtype), impsort], dim=-1)

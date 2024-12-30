@@ -1,6 +1,6 @@
 python3 -u validate.py --data-dir /data/datasets/ImageNet/ \
     --model=$1\
-    --evict-algo="arithmetic_mean"\
+    --evict-algo="seedkey"\
     --evict-policy="0.25,0.5,0.75"\
     --evict-k=1000\
     --evict-start=0.5\
@@ -12,7 +12,7 @@ python3 -u validate.py --data-dir /data/datasets/ImageNet/ \
     --batch-size=1024\
     --workers=32\
     --num-gpu=8\
-    --evict-num-gemms=2\
-    --savedir="/home/users/akane/kv-evict-results-3spot-policy-sortx/$1/arithmetic_mean/"\
+    --evict-num-gemms=1\
+    --savedir="/home/users/akane/kv-evict-results-seedkey-3spot/$1/seedkey/"\
     --pretrained
 

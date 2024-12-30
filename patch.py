@@ -15,9 +15,6 @@ import torch.utils.checkpoint
 
 from timm.models.vision_transformer import VisionTransformer, Block, Attention
 
-from xformers.ops.fmha import memory_efficient_attention
-from xformers.ops.fmha.cutlass import FwOp, BwOp
-from xformers.ops.fmha.flash import FwOp as flashFwOp, BwOp as flashBwOp
 # from sink_utils import update_keepmap, prune_x, sort_x_importance, split_qkv_weights, split_qkv_weights_two
 from sink_utils import *
 
@@ -463,20 +460,19 @@ class SeedkeyAttention(Attention):
             
     def forward(self, x: torch.Tensor, to_keep_map: torch.Tensor = None, querywise_argmin: torch.Tensor = None) -> torch.Tensor:
         B, N, C = x.shape
-        if self.eviction_config["to_evict"] > 0:
-            querywise_argmin = torch.randint(N, size=(B, self.num_heads, N), device=x.device)
 
         self.check_eviction_cfg(to_keep_map, querywise_argmin)
 
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)
+        q, k = self.q_norm(q), self.k_norm(k)
 
         ecfg = self.eviction_config
         if ecfg["to_evict"] >= 0:
             to_keep_map = update_seedkey_keepmap(querywise_argmin, k, to_keep_map, to_evict=ecfg["to_evict"],
                 has_cls=ecfg["has_cls"], heads_first=True)
-            
             to_keep_index = to_keep_map.unsqueeze(1).unsqueeze(-1).expand(-1, self.num_heads, -1, self.head_dim)
+            
             k = torch.gather(k, index=to_keep_index, dim=-2)
             v = torch.gather(v, index=to_keep_index, dim=-2)
         else:
@@ -484,11 +480,9 @@ class SeedkeyAttention(Attention):
             q, k, v = qkv.unbind(0)
             to_keep_map = torch.arange(N, device=q.device).unsqueeze(0).expand(B, -1)
 
-        q, k = self.q_norm(q), self.k_norm(k)
-
         q = q * self.scale
         attn = q @ k.transpose(-2, -1)
-        # querywise_argmin = torch.argmin(attn, dim=-1)
+        querywise_argmin = torch.argmin(attn, dim=-1)
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
         x = attn @ v
